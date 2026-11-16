@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "notSoEasilyDistracted",
+  "version": "0.1.0",
+  "description": "A calm workspace for staying focused online.",
+  "action": {
+    "default_title": "notSoEasilyDistracted",
+    "default_popup": "popup/index.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["storage"]
+}

@@ -1,5 +1,6 @@
 import { normalizeDomain } from '../engines/blocking/index.ts'
 import {
+  DEFAULT_CATEGORY_DEFINITIONS,
   createDefaultCategories,
   type Category,
   type Website,
@@ -131,8 +132,12 @@ export function validateWebsiteManagementData(
   const websites = value.websites.map(validateWebsite)
   const categories = value.categories.map(validateCategory)
   const websiteIds = new Set<string>()
+  const websiteDomains = new Set<string>()
   const categoryIds = new Set<string>()
   const categoryNames = new Set<string>()
+  const defaultCategoryIds = new Set<string>(
+    DEFAULT_CATEGORY_DEFINITIONS.map((definition) => definition.id),
+  )
 
   for (const website of websites) {
     if (websiteIds.has(website.id)) {
@@ -141,7 +146,14 @@ export function validateWebsiteManagementData(
         `Duplicate website ID: ${website.id}.`,
       )
     }
+    if (websiteDomains.has(website.domain)) {
+      throw repositoryError(
+        'invalid-storage-data',
+        `Duplicate website domain: ${website.domain}.`,
+      )
+    }
     websiteIds.add(website.id)
+    websiteDomains.add(website.domain)
   }
 
   for (const category of categories) {
@@ -158,8 +170,30 @@ export function validateWebsiteManagementData(
         `Duplicate category name: ${category.name}.`,
       )
     }
+    if (category.isDefault && !defaultCategoryIds.has(category.id)) {
+      throw repositoryError(
+        'invalid-storage-data',
+        `Custom category ${category.id} cannot be marked as default.`,
+      )
+    }
     categoryIds.add(category.id)
     categoryNames.add(normalizedName)
+  }
+
+  for (const definition of DEFAULT_CATEGORY_DEFINITIONS) {
+    const category = categories.find(
+      (candidate) => candidate.id === definition.id,
+    )
+    if (
+      !category ||
+      category.name !== definition.name ||
+      category.isDefault !== true
+    ) {
+      throw repositoryError(
+        'invalid-storage-data',
+        `Default category ${definition.id} is missing or has been modified.`,
+      )
+    }
   }
 
   for (const website of websites) {

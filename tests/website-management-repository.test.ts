@@ -5,6 +5,7 @@ import {
 } from '../src/storage/website-management-repository.ts'
 import {
   createDefaultCategories,
+  DEFAULT_CATEGORY_DEFINITIONS,
   type WebsiteManagementData,
 } from '../src/types/website-management.ts'
 
@@ -165,6 +166,90 @@ describe('WebsiteManagementRepository', () => {
     await repository.saveData(data)
     await expect(repository.getData()).resolves.toEqual(data)
     expect(storage.set).toHaveBeenCalledWith({ [STORAGE_KEY]: data })
+  })
+
+  it('rejects duplicate canonical website domains', async () => {
+    const data = cloneData()
+    data.websites.push({
+      ...data.websites[0],
+      id: 'website-2',
+      hostname: 'm.example.com',
+    })
+    storage.setStoredValue(data)
+
+    await expect(repository.getData()).rejects.toMatchObject({
+      code: 'invalid-storage-data',
+    })
+  })
+
+  it('rejects equivalent www and subdomain website domains', async () => {
+    const data = cloneData()
+    data.websites[0].hostname = 'www.example.com'
+    data.websites.push({
+      ...data.websites[0],
+      id: 'website-2',
+      hostname: 'm.example.com',
+    })
+    storage.setStoredValue(data)
+
+    await expect(repository.getData()).rejects.toMatchObject({
+      code: 'invalid-storage-data',
+    })
+  })
+
+  it.each([
+    ['missing default', (data: WebsiteManagementData) => {
+      data.categories = data.categories.filter(
+        (category) => category.id !== DEFAULT_CATEGORY_DEFINITIONS[0].id,
+      )
+    }],
+    ['modified default ID', (data: WebsiteManagementData) => {
+      data.categories[0].id = 'custom-social-media'
+    }],
+    ['modified default name', (data: WebsiteManagementData) => {
+      data.categories[0].name = 'Custom Social'
+    }],
+    ['incorrect default flag', (data: WebsiteManagementData) => {
+      data.categories[0].isDefault = false
+    }],
+  ])('rejects %s categories in existing storage', async (_name, update) => {
+    const data = cloneData()
+    update(data)
+    storage.setStoredValue(data)
+
+    await expect(repository.getData()).rejects.toMatchObject({
+      code: 'invalid-storage-data',
+    })
+  })
+
+  it('accepts valid custom categories alongside all defaults', async () => {
+    const data = cloneData()
+    data.categories.push({
+      id: 'custom-focus',
+      name: 'Focus',
+      isDefault: false,
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    })
+    storage.setStoredValue(data)
+
+    await expect(repository.getData()).resolves.toEqual(data)
+  })
+
+  it('rejects custom categories marked as default', async () => {
+    const data = cloneData()
+    data.categories.push({
+      id: 'custom-focus',
+      name: 'Focus',
+      isDefault: true,
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    })
+    storage.setStoredValue(data)
+
+    await expect(repository.getData()).rejects.toMatchObject({
+      code: 'invalid-storage-data',
+    })
   })
 
   it.each([

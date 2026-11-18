@@ -15,13 +15,14 @@ function createRepository(
   repository: WebsiteManagementRepositoryApi
   getStoredData: () => WebsiteManagementData
 } {
-  let storedData = structuredClone(
-    initialData ?? {
-      version: 1,
-      websites: [],
-      categories: createDefaultCategories(1_700_000_000_000),
-    },
-  )
+  const defaultData: WebsiteManagementData = {
+    version: 1,
+    websites: [],
+    categories: createDefaultCategories(1_700_000_000_000),
+  }
+
+  let storedData = structuredClone(initialData ?? defaultData)
+
   const repository: WebsiteManagementRepositoryApi = {
     initialize: vi.fn(async () => structuredClone(storedData)),
     getData: vi.fn(async () => structuredClone(storedData)),
@@ -29,6 +30,7 @@ function createRepository(
       storedData = structuredClone(data)
     }),
   }
+
   return { repository, getStoredData: () => structuredClone(storedData) }
 }
 
@@ -85,7 +87,12 @@ describe('WebsiteService', () => {
 
     const website = await service.addWebsite({ domain: input })
 
-    expect(website).toMatchObject({ domain, hostname, categoryId: 'default-other' })
+    expect(website).toMatchObject({
+      domain,
+      hostname,
+      categoryId: 'default-other',
+      isEnabled: true,
+    })
   })
 
   it('assigns an explicit category', async () => {
@@ -181,6 +188,79 @@ describe('WebsiteService', () => {
     await expect(
       service.assignCategory(website.id, 'missing'),
     ).rejects.toMatchObject({ code: 'category-not-found' })
+  })
+
+  it('disables and re-enables a website while preserving its fields', async () => {
+    const { service, getStoredData } = createService()
+    const website = await service.addWebsite({
+      domain: 'https://www.example.com/path',
+      categoryId: 'default-gaming',
+    })
+    const disabled = await service.setWebsiteEnabled(website.id, false)
+
+    expect(disabled).toEqual({
+      ...website,
+      isEnabled: false,
+      updatedAt: 1_800_000_000_002,
+    })
+    expect(disabled.id).toBe(website.id)
+    expect(disabled.domain).toBe(website.domain)
+    expect(disabled.hostname).toBe(website.hostname)
+    expect(disabled.categoryId).toBe(website.categoryId)
+    expect(disabled.createdAt).toBe(website.createdAt)
+
+    const reenabled = await service.setWebsiteEnabled(website.id, true)
+    expect(reenabled).toEqual({
+      ...disabled,
+      isEnabled: true,
+      updatedAt: 1_800_000_000_003,
+    })
+    expect(getStoredData().websites[0]).toEqual(reenabled)
+  })
+
+  it('rejects missing website IDs and invalid enabled values', async () => {
+    const { service } = createService()
+
+    await expect(service.setWebsiteEnabled('missing', false)).rejects.toMatchObject({
+      code: 'website-not-found',
+    })
+    await expect(
+      service.setWebsiteEnabled('missing', 'false' as unknown as boolean),
+    ).rejects.toMatchObject({ code: 'invalid-website' })
+
+    const website = await service.addWebsite({ domain: 'example.com' })
+    await expect(
+      service.setWebsiteEnabled(website.id, 'false' as unknown as boolean),
+    ).rejects.toMatchObject({ code: 'invalid-website' })
+  })
+
+  it('does not save or change updatedAt when the enabled state is already current', async () => {
+    const initialData: WebsiteManagementData = {
+      version: 1,
+      websites: [
+        {
+          id: 'website-1',
+          domain: 'example.com',
+          hostname: 'www.example.com',
+          categoryId: 'default-gaming',
+          isEnabled: false,
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_000_001,
+        },
+      ],
+      categories: createDefaultCategories(1_700_000_000_000),
+    }
+    const { repository } = createRepository(initialData)
+    const service = new WebsiteService(repository, {
+      now: () => 1_800_000_000_999,
+    })
+
+    const first = await service.setWebsiteEnabled('website-1', false)
+    const second = await service.setWebsiteEnabled('website-1', false)
+
+    expect(first).toEqual(second)
+    expect(second.updatedAt).toBe(1_700_000_000_001)
+    expect(repository.saveData).toHaveBeenCalledTimes(0)
   })
 
   it('serializes concurrent additions without losing either website', async () => {

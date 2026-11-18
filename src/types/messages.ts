@@ -11,9 +11,17 @@ export const PING_MESSAGE = 'PING' as const
 export const WEBSITE_MANAGEMENT_MESSAGE = 'WEBSITE_MANAGEMENT' as const
 export const WEBSITE_MANAGEMENT_RESPONSE = 'WEBSITE_MANAGEMENT_RESPONSE' as const
 export const WEBSITE_MANAGEMENT_ERROR = 'WEBSITE_MANAGEMENT_ERROR' as const
+export const SET_WEBSITE_ENABLED = 'SET_WEBSITE_ENABLED' as const
 
 export interface PingMessage {
   type: typeof PING_MESSAGE
+}
+
+export interface SetWebsiteEnabledRequest {
+  type: typeof WEBSITE_MANAGEMENT_MESSAGE
+  operation: typeof SET_WEBSITE_ENABLED
+  websiteId: string
+  isEnabled: boolean
 }
 
 export type WebsiteManagementRequest =
@@ -48,6 +56,7 @@ export type WebsiteManagementRequest =
       websiteId: string
       categoryId: string | null
     }
+  | SetWebsiteEnabledRequest
 
 export type WebsiteManagementOperation = WebsiteManagementRequest['operation']
 
@@ -93,6 +102,13 @@ export interface AssignCategoryResponse {
   data: Website
 }
 
+export interface SetWebsiteEnabledResponse {
+  ok: true
+  type: typeof WEBSITE_MANAGEMENT_RESPONSE
+  operation: typeof SET_WEBSITE_ENABLED
+  data: Website
+}
+
 export type WebsiteManagementSuccessResponse =
   | GetWebsitesResponse
   | GetWebsiteByIdResponse
@@ -100,6 +116,7 @@ export type WebsiteManagementSuccessResponse =
   | UpdateWebsiteResponse
   | RemoveWebsiteResponse
   | AssignCategoryResponse
+  | SetWebsiteEnabledResponse
 
 export type WebsiteManagementTransportErrorCode =
   | 'invalid-message'
@@ -173,6 +190,11 @@ export function isWebsiteManagementRequest(
       return (
         isNonEmptyString(message.websiteId) &&
         isNullableNonEmptyString(message.categoryId)
+      )
+    case SET_WEBSITE_ENABLED:
+      return (
+        isNonEmptyString(message.websiteId) &&
+        typeof message.isEnabled === 'boolean'
       )
     default:
       return false

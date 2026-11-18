@@ -15,8 +15,17 @@ function createStorageMock() {
   let storedValue: unknown
   let readError: Error | undefined
   let writeError: Error | undefined
+  let releaseGet: (() => void) | undefined
+  let getBlocked = false
 
   const get = vi.fn(async () => {
+    if (getBlocked) {
+      await new Promise<void>((resolve) => {
+        releaseGet = resolve
+      })
+      getBlocked = false
+      releaseGet = undefined
+    }
     if (readError) {
       throw readError
     }
@@ -41,6 +50,12 @@ function createStorageMock() {
     setWriteError(error: Error | undefined) {
       writeError = error
     },
+    blockNextGet() {
+      getBlocked = true
+    },
+    releaseGet() {
+      releaseGet?.()
+    },
   }
 }
 
@@ -54,6 +69,7 @@ function validData(): WebsiteManagementData {
         domain: 'example.com',
         hostname: 'www.example.com',
         categoryId: categories[0].id,
+        isEnabled: true,
         createdAt: 1_700_000_000_000,
         updatedAt: 1_700_000_000_000,
       },
@@ -112,6 +128,7 @@ describe('WebsiteManagementRepository', () => {
           domain: 'example.com',
           hostname: 'example.com',
           categoryId: first.categories[0].id,
+          isEnabled: true,
           createdAt: 1,
           updatedAt: 1,
         },
@@ -137,6 +154,7 @@ describe('WebsiteManagementRepository', () => {
           domain: 'example.com',
           hostname: 'example.com',
           categoryId: first.categories[0].id,
+          isEnabled: true,
           createdAt: 1,
           updatedAt: 1,
         },
@@ -157,6 +175,93 @@ describe('WebsiteManagementRepository', () => {
     storage.setStoredValue(data)
 
     await expect(repository.initialize()).resolves.toEqual(data)
+    expect(storage.set).not.toHaveBeenCalled()
+  })
+
+  it('migrates legacy websites to enabled and persists the migration', async () => {
+    const data = validData()
+    const legacyData = structuredClone(data) as {
+      websites: Array<Record<string, unknown>>
+    }
+    delete legacyData.websites[0].isEnabled
+    storage.setStoredValue(legacyData)
+
+    await expect(repository.initialize()).resolves.toEqual(data)
+    expect(storage.set).toHaveBeenCalledWith({ [STORAGE_KEY]: data })
+
+    await expect(repository.initialize()).resolves.toEqual(data)
+    expect(storage.set).toHaveBeenCalledOnce()
+  })
+
+  it('serializes initialize and getData during legacy migration', async () => {
+    const data = validData()
+    const legacyData = structuredClone(data) as {
+      websites: Array<Record<string, unknown>>
+    }
+    delete legacyData.websites[0].isEnabled
+    storage.setStoredValue(legacyData)
+    storage.blockNextGet()
+
+    const initializePromise = repository.initialize()
+    const getDataPromise = repository.getData()
+    await Promise.resolve()
+
+    expect(storage.get).toHaveBeenCalledOnce()
+    storage.releaseGet()
+
+    await expect(initializePromise).resolves.toEqual(data)
+    await expect(getDataPromise).resolves.toEqual(data)
+    expect(storage.set).toHaveBeenCalledOnce()
+  })
+
+  it('does not let migration overwrite a newer save', async () => {
+    const data = validData()
+    const legacyRecord = structuredClone(data) as {
+      websites: Array<Record<string, unknown>>
+    }
+    delete legacyRecord.websites[0].isEnabled
+    storage.setStoredValue(legacyRecord)
+    storage.blockNextGet()
+
+    const migrationPromise = repository.getData()
+    const newerData = validData()
+    newerData.websites[0].isEnabled = false
+    const savePromise = repository.saveData(newerData)
+    await Promise.resolve()
+
+    expect(storage.get).toHaveBeenCalledOnce()
+    storage.releaseGet()
+
+    await expect(migrationPromise).resolves.toEqual(data)
+    await expect(savePromise).resolves.toBeUndefined()
+    await expect(repository.getData()).resolves.toEqual(newerData)
+  })
+
+  it('serializes multiple concurrent migration callers', async () => {
+    const data = validData()
+    const legacyData = structuredClone(data) as {
+      websites: Array<Record<string, unknown>>
+    }
+    delete legacyData.websites[0].isEnabled
+    storage.setStoredValue(legacyData)
+
+    const results = await Promise.all([
+      repository.getData(),
+      repository.getData(),
+      repository.getData(),
+    ])
+
+    expect(results).toEqual([data, data, data])
+    expect(storage.set).toHaveBeenCalledOnce()
+    expect(storage.get).toHaveBeenCalledTimes(3)
+  })
+
+  it.each([true, false])('preserves an existing isEnabled value: %s', async (isEnabled) => {
+    const data = validData()
+    data.websites[0].isEnabled = isEnabled
+    storage.setStoredValue(data)
+
+    await expect(repository.getData()).resolves.toEqual(data)
     expect(storage.set).not.toHaveBeenCalled()
   })
 
@@ -257,6 +362,7 @@ describe('WebsiteManagementRepository', () => {
     ['missing websites array', (data: WebsiteManagementData) => ({ ...data, websites: undefined }), 'invalid-storage-data'],
     ['missing categories array', (data: WebsiteManagementData) => ({ ...data, categories: undefined }), 'invalid-storage-data'],
     ['invalid website record', (data: WebsiteManagementData) => ({ ...data, websites: [{ ...data.websites[0], domain: '' }] }), 'invalid-storage-data'],
+    ['invalid website enabled value', (data: WebsiteManagementData) => ({ ...data, websites: [{ ...data.websites[0], isEnabled: 'yes' }] }), 'invalid-storage-data'],
     ['invalid category record', (data: WebsiteManagementData) => ({ ...data, categories: [{ ...data.categories[0], name: '' }] }), 'invalid-storage-data'],
     ['duplicate website ID', (data: WebsiteManagementData) => ({ ...data, websites: [data.websites[0], { ...data.websites[0], domain: 'other.com', hostname: 'other.com' }] }), 'invalid-storage-data'],
     ['duplicate category ID', (data: WebsiteManagementData) => ({ ...data, categories: [data.categories[0], { ...data.categories[1], id: data.categories[0].id }] }), 'invalid-storage-data'],
@@ -289,6 +395,18 @@ describe('WebsiteManagementRepository', () => {
     await expect(repository.saveData(validData())).rejects.toMatchObject({
       code: 'storage-write-failure',
     })
+  })
+
+  it('recovers the operation queue after a failed operation', async () => {
+    storage.setWriteError(new Error('write failed'))
+
+    await expect(repository.saveData(validData())).rejects.toMatchObject({
+      code: 'storage-write-failure',
+    })
+
+    storage.setWriteError(undefined)
+    await expect(repository.saveData(validData())).resolves.toBeUndefined()
+    await expect(repository.getData()).resolves.toEqual(validData())
   })
 
   it('allows initialization to be retried after a failure', async () => {

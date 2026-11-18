@@ -3,6 +3,7 @@ import {
   isPingMessage,
   isWebsiteManagementRequest,
   PING_MESSAGE,
+  SET_WEBSITE_ENABLED,
 } from '../src/types/messages.ts'
 
 describe('message contracts', () => {
@@ -69,6 +70,22 @@ describe('message contracts', () => {
         categoryId: 'default-gaming',
       },
     ],
+    [
+      {
+        type: 'WEBSITE_MANAGEMENT',
+        operation: SET_WEBSITE_ENABLED,
+        websiteId: 'website-1',
+        isEnabled: true,
+      },
+    ],
+    [
+      {
+        type: 'WEBSITE_MANAGEMENT',
+        operation: SET_WEBSITE_ENABLED,
+        websiteId: 'website-1',
+        isEnabled: false,
+      },
+    ],
   ])('accepts valid request %j', (message) => {
     expect(isWebsiteManagementRequest(message)).toBe(true)
   })
@@ -130,6 +147,45 @@ describe('message contracts', () => {
       operation: 'ASSIGN_CATEGORY',
       websiteId: 'website-1',
       categoryId: {},
+    },
+    {
+      type: 'WEBSITE_MANAGEMENT',
+      operation: SET_WEBSITE_ENABLED,
+    },
+    {
+      type: 'WEBSITE_MANAGEMENT',
+      operation: SET_WEBSITE_ENABLED,
+      websiteId: '',
+      isEnabled: true,
+    },
+    {
+      type: 'WEBSITE_MANAGEMENT',
+      operation: SET_WEBSITE_ENABLED,
+      websiteId: ' ',
+      isEnabled: false,
+    },
+    {
+      type: 'WEBSITE_MANAGEMENT',
+      operation: SET_WEBSITE_ENABLED,
+      websiteId: 'website-1',
+    },
+    {
+      type: 'WEBSITE_MANAGEMENT',
+      operation: SET_WEBSITE_ENABLED,
+      websiteId: 'website-1',
+      isEnabled: 'false',
+    },
+    {
+      type: 'WEBSITE_MANAGEMENT',
+      operation: SET_WEBSITE_ENABLED,
+      websiteId: 'website-1',
+      isEnabled: 0,
+    },
+    {
+      type: 'WEBSITE_MANAGEMENT',
+      operation: SET_WEBSITE_ENABLED,
+      websiteId: 'website-1',
+      isEnabled: null,
     },
   ])('rejects malformed request %j', (message) => {
     expect(isWebsiteManagementRequest(message)).toBe(false)

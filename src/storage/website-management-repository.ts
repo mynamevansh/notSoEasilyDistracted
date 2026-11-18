@@ -48,11 +48,13 @@ function validateWebsite(value: unknown, index: number): Website {
   }
 
   const { id, domain, hostname, categoryId, createdAt, updatedAt } = value
+  const isEnabled = !('isEnabled' in value) ? true : value.isEnabled
   if (
     !isNonEmptyString(id) ||
     !isNonEmptyString(domain) ||
     !isNonEmptyString(hostname) ||
     (categoryId !== null && !isNonEmptyString(categoryId)) ||
+    typeof isEnabled !== 'boolean' ||
     !isTimestamp(createdAt) ||
     !isTimestamp(updatedAt)
   ) {
@@ -77,7 +79,17 @@ function validateWebsite(value: unknown, index: number): Website {
     )
   }
 
-  return { id, domain, hostname, categoryId, createdAt, updatedAt }
+  return { id, domain, hostname, categoryId, isEnabled, createdAt, updatedAt }
+}
+
+function hasLegacyWebsiteRecords(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.websites) &&
+    value.websites.some(
+      (website) => isRecord(website) && !('isEnabled' in website),
+    )
+  )
 }
 
 function validateCategory(value: unknown, index: number): Category {
@@ -223,6 +235,9 @@ export class WebsiteManagementRepository
 {
   private initializationPromise: Promise<WebsiteManagementData> | undefined
 
+  // This queue serializes repository operations on this instance only, not separate instances.
+  private operationQueue: Promise<void> = Promise.resolve()
+
   private getStorageArea(): chrome.storage.LocalStorageArea {
     if (
       typeof globalThis.chrome === 'undefined' ||
@@ -251,13 +266,24 @@ export class WebsiteManagementRepository
     }
   }
 
+  private enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operationQueue.then(operation)
+    this.operationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
   // This lock coordinates calls on this instance only, not separate contexts or instances.
   initialize(): Promise<WebsiteManagementData> {
     if (this.initializationPromise) {
       return this.initializationPromise
     }
 
-    const initializationPromise = this.initializeOnce()
+    const initializationPromise = this.enqueueOperation(() =>
+      this.initializeOnce(),
+    )
     this.initializationPromise = initializationPromise
     void initializationPromise.then(
       () => {
@@ -277,7 +303,11 @@ export class WebsiteManagementRepository
   private async initializeOnce(): Promise<WebsiteManagementData> {
     const storedValue = await this.readStoredValue()
     if (storedValue !== undefined) {
-      return validateWebsiteManagementData(storedValue)
+      const data = validateWebsiteManagementData(storedValue)
+      if (hasLegacyWebsiteRecords(storedValue)) {
+        await this.saveDataInternal(data)
+      }
+      return data
     }
 
     const initialData: WebsiteManagementData = {
@@ -285,23 +315,33 @@ export class WebsiteManagementRepository
       websites: [],
       categories: createDefaultCategories(),
     }
-    await this.saveData(initialData)
+    await this.saveDataInternal(initialData)
     return initialData
   }
 
   async getData(): Promise<WebsiteManagementData> {
-    const storedValue = await this.readStoredValue()
-    if (storedValue === undefined) {
-      throw repositoryError(
-        'invalid-storage-data',
-        'Website-management storage has not been initialized.',
-      )
-    }
+    return this.enqueueOperation(async () => {
+      const storedValue = await this.readStoredValue()
+      if (storedValue === undefined) {
+        throw repositoryError(
+          'invalid-storage-data',
+          'Website-management storage has not been initialized.',
+        )
+      }
 
-    return validateWebsiteManagementData(storedValue)
+      const data = validateWebsiteManagementData(storedValue)
+      if (hasLegacyWebsiteRecords(storedValue)) {
+        await this.saveDataInternal(data)
+      }
+      return data
+    })
   }
 
   async saveData(data: WebsiteManagementData): Promise<void> {
+    return this.enqueueOperation(() => this.saveDataInternal(data))
+  }
+
+  private async saveDataInternal(data: WebsiteManagementData): Promise<void> {
     const validatedData = validateWebsiteManagementData(data)
     const storage = this.getStorageArea()
     try {

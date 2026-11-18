@@ -3,6 +3,7 @@ export interface Website {
   domain: string
   hostname: string
   categoryId: string | null
+  isEnabled: boolean
   createdAt: number
   updatedAt: number
 }

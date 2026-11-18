@@ -23,6 +23,7 @@ export interface WebsiteServiceApi {
   getWebsites(): Promise<Website[]>
   getWebsiteById(id: string): Promise<Website>
   updateWebsite(id: string, updates: UpdateWebsiteInput): Promise<Website>
+  setWebsiteEnabled(id: string, isEnabled: boolean): Promise<Website>
   removeWebsite(id: string): Promise<void>
   assignCategory(websiteId: string, categoryId: string | null): Promise<Website>
 }
@@ -106,6 +107,12 @@ export class WebsiteService implements WebsiteServiceApi {
     return this.enqueueMutation(() => this.updateWebsiteInternal(id, updates))
   }
 
+  setWebsiteEnabled(id: string, isEnabled: boolean): Promise<Website> {
+    return this.enqueueMutation(() =>
+      this.setWebsiteEnabledInternal(id, isEnabled),
+    )
+  }
+
   removeWebsite(id: string): Promise<void> {
     return this.enqueueMutation(() => this.removeWebsiteInternal(id))
   }
@@ -137,6 +144,7 @@ export class WebsiteService implements WebsiteServiceApi {
       domain: normalized.domain,
       hostname: normalized.hostname,
       categoryId,
+      isEnabled: true,
       createdAt: timestamp,
       updatedAt: timestamp,
     }
@@ -170,6 +178,36 @@ export class WebsiteService implements WebsiteServiceApi {
       domain,
       hostname,
       categoryId,
+      updatedAt: this.now(),
+    }
+    const websites = data.websites.map((website) =>
+      website.id === id ? updatedWebsite : website,
+    )
+
+    await this.repository.saveData({ ...data, websites })
+    return cloneWebsite(updatedWebsite)
+  }
+
+  private async setWebsiteEnabledInternal(
+    id: string,
+    isEnabled: boolean,
+  ): Promise<Website> {
+    if (typeof isEnabled !== 'boolean') {
+      throw serviceError(
+        'invalid-website',
+        'Website enabled state must be a boolean.',
+      )
+    }
+
+    const data = await this.loadData()
+    const existing = this.findWebsite(data.websites, id)
+    if (existing.isEnabled === isEnabled) {
+      return cloneWebsite(existing)
+    }
+
+    const updatedWebsite: Website = {
+      ...existing,
+      isEnabled,
       updatedAt: this.now(),
     }
     const websites = data.websites.map((website) =>

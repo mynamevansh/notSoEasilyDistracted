@@ -2,6 +2,7 @@ import {
   type ExtensionResponse,
   isPingMessage,
 } from '../types/messages.ts'
+import './background-manager.ts'
 
 chrome.runtime.onMessage.addListener(
   (

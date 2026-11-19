@@ -121,6 +121,7 @@ export type WebsiteManagementSuccessResponse =
 export type WebsiteManagementTransportErrorCode =
   | 'invalid-message'
   | 'unsupported-message'
+  | 'internal-error'
 
 export type WebsiteManagementResponseErrorCode =
   | WebsiteManagementErrorCode

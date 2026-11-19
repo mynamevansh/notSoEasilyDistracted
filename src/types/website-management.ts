@@ -69,21 +69,25 @@ export interface WebsiteManagementData {
   categories: Category[]
 }
 
+export const WEBSITE_MANAGEMENT_ERROR_CODES = [
+  'invalid-website',
+  'duplicate-website',
+  'website-not-found',
+  'invalid-category',
+  'duplicate-category-name',
+  'category-not-found',
+  'default-category-cannot-be-deleted',
+  'default-category-cannot-be-renamed',
+  'storage-failure',
+  'storage-unavailable',
+  'storage-read-failure',
+  'storage-write-failure',
+  'invalid-storage-data',
+  'unsupported-schema-version',
+] as const
+
 export type WebsiteManagementErrorCode =
-  | 'invalid-website'
-  | 'duplicate-website'
-  | 'website-not-found'
-  | 'invalid-category'
-  | 'duplicate-category-name'
-  | 'category-not-found'
-  | 'default-category-cannot-be-deleted'
-  | 'default-category-cannot-be-renamed'
-  | 'storage-failure'
-  | 'storage-unavailable'
-  | 'storage-read-failure'
-  | 'storage-write-failure'
-  | 'invalid-storage-data'
-  | 'unsupported-schema-version'
+  typeof WEBSITE_MANAGEMENT_ERROR_CODES[number]
 
 export interface WebsiteManagementError {
   code: WebsiteManagementErrorCode

@@ -5,19 +5,19 @@ import {
   DNR_RULE_ID_ALLOCATION_SIZE,
   DnrRuleIdAllocationError,
   allocateDnrRuleIds,
-  hashDnrRuleWebsiteId,
+  hashDnrRuleTargetId,
 } from '../src/dnr/dnr-rule-id-allocation.ts'
 
 function allocate(
-  websiteIds: readonly string[],
+  targetIds: readonly string[],
   existingAssignments?: readonly {
-    readonly websiteId: string
+    readonly targetId: string
     readonly ruleId: number
   }[],
   reservedRuleIds?: readonly number[],
 ) {
   return allocateDnrRuleIds({
-    websiteIds,
+    targetIds,
     existingAssignments,
     reservedRuleIds,
   })
@@ -25,42 +25,42 @@ function allocate(
 
 describe('allocateDnrRuleIds', () => {
   it('uses the documented FNV-1a-style hash vectors', () => {
-    expect(hashDnrRuleWebsiteId('a')).toBe(0xe40c292c)
-    expect(hashDnrRuleWebsiteId('😀')).toBe(0xcb31c4b8)
+    expect(hashDnrRuleTargetId('a')).toBe(0xe40c292c)
+    expect(hashDnrRuleTargetId('😀')).toBe(0xcb31c4b8)
   })
 
   it('allocates deterministically', () => {
-    expect(allocate(['website-a', 'website-b'])).toEqual(
-      allocate(['website-a', 'website-b']),
+    expect(allocate(['target-a', 'target-b'])).toEqual(
+      allocate(['target-a', 'target-b']),
     )
   })
 
-  it('does not change allocations when website input order changes', () => {
-    expect(allocate(['website-b', 'website-a'])).toEqual(
-      allocate(['website-a', 'website-b']),
+  it('does not change allocations when target input order changes', () => {
+    expect(allocate(['target-b', 'target-a'])).toEqual(
+      allocate(['target-a', 'target-b']),
     )
   })
 
   it('preserves every valid existing assignment unchanged', () => {
     const result = allocate(
-      ['website-a', 'website-b'],
+      ['target-a', 'target-b'],
       [
-        { websiteId: 'website-b', ruleId: 175_000 },
+        { targetId: 'target-b', ruleId: 175_000 },
       ],
     )
 
     expect(result).toContainEqual({
-      websiteId: 'website-b',
+      targetId: 'target-b',
       ruleId: 175_000,
     })
   })
 
-  it('adds a third website without changing previous assignments', () => {
+  it('adds a third target without changing previous assignments', () => {
     const first = allocate(
-      ['website-a', 'website-b'],
+      ['target-a', 'target-b'],
     )
     const second = allocate(
-      ['website-a', 'website-b', 'website-c'],
+      ['target-a', 'target-b', 'target-c'],
       first,
     )
 
@@ -70,11 +70,11 @@ describe('allocateDnrRuleIds', () => {
   })
 
   it('preserves two original assignments when a third hash candidate collides', () => {
-    const originalAssignments = allocate(['website-a', 'website-b'])
-    const thirdWebsiteId = 'collision-third-101019'
+    const originalAssignments = allocate(['target-a', 'target-b'])
+    const thirdTargetId = 'collision-third-230'
     const thirdCandidate =
       DNR_RULE_ID_ALLOCATION_MIN +
-      (hashDnrRuleWebsiteId(thirdWebsiteId) %
+      (hashDnrRuleTargetId(thirdTargetId) %
         DNR_RULE_ID_ALLOCATION_SIZE)
 
     expect(
@@ -84,7 +84,7 @@ describe('allocateDnrRuleIds', () => {
     ).toBe(true)
 
     const second = allocate(
-      ['website-a', 'website-b', thirdWebsiteId],
+      ['target-a', 'target-b', thirdTargetId],
       originalAssignments,
     )
 
@@ -92,16 +92,16 @@ describe('allocateDnrRuleIds', () => {
       expect(second).toContainEqual(assignment)
     }
     const thirdAssignment = second.find(
-      (assignment) => assignment.websiteId === thirdWebsiteId,
+      (assignment) => assignment.targetId === thirdTargetId,
     )
     expect(thirdAssignment).toBeDefined()
     expect(thirdAssignment?.ruleId).not.toBe(thirdCandidate)
   })
 
   it('resolves collisions deterministically with linear probing', () => {
-    const websiteId = 'collision-website'
+    const targetId = 'collision-target'
     const firstOffset =
-      hashDnrRuleWebsiteId(websiteId) %
+      hashDnrRuleTargetId(targetId) %
       DNR_RULE_ID_ALLOCATION_SIZE
     const occupiedRuleId =
       DNR_RULE_ID_ALLOCATION_MIN + firstOffset
@@ -110,33 +110,33 @@ describe('allocateDnrRuleIds', () => {
       ((firstOffset + 1) % DNR_RULE_ID_ALLOCATION_SIZE)
 
     const result = allocate(
-      [websiteId, 'existing-website'],
-      [{ websiteId: 'existing-website', ruleId: occupiedRuleId }],
+      [targetId, 'existing-target'],
+      [{ targetId: 'existing-target', ruleId: occupiedRuleId }],
     )
 
     expect(result).toContainEqual({
-      websiteId,
+      targetId,
       ruleId: nextRuleId,
     })
   })
 
   it('skips reserved IDs', () => {
-    const websiteId = 'reserved-website'
+    const targetId = 'reserved-target'
     const firstOffset =
-      hashDnrRuleWebsiteId(websiteId) %
+      hashDnrRuleTargetId(targetId) %
       DNR_RULE_ID_ALLOCATION_SIZE
     const reservedRuleId =
       DNR_RULE_ID_ALLOCATION_MIN + firstOffset
 
     const result = allocate(
-      [websiteId],
+      [targetId],
       undefined,
       [reservedRuleId],
     )
 
     expect(result).toEqual([
       {
-        websiteId,
+        targetId,
         ruleId:
           DNR_RULE_ID_ALLOCATION_MIN +
           ((firstOffset + 1) % DNR_RULE_ID_ALLOCATION_SIZE),
@@ -145,9 +145,9 @@ describe('allocateDnrRuleIds', () => {
   })
 
   it('wraps linear probing from the upper boundary to the lower boundary', () => {
-    const websiteId = 'wrap-906'
+    const targetId = 'wrap-906'
     const firstOffset =
-      hashDnrRuleWebsiteId(websiteId) %
+      hashDnrRuleTargetId(targetId) %
       DNR_RULE_ID_ALLOCATION_SIZE
     const reservedRuleIds = Array.from(
       { length: DNR_RULE_ID_ALLOCATION_MAX - (DNR_RULE_ID_ALLOCATION_MIN + firstOffset) + 1 },
@@ -155,14 +155,14 @@ describe('allocateDnrRuleIds', () => {
     )
 
     const result = allocate(
-      [websiteId],
+      [targetId],
       undefined,
       reservedRuleIds,
     )
 
     expect(result).toEqual([
       {
-        websiteId,
+        targetId,
         ruleId: DNR_RULE_ID_ALLOCATION_MIN,
       },
     ])
@@ -171,7 +171,7 @@ describe('allocateDnrRuleIds', () => {
   it('rejects null existingAssignments', () => {
     expect(() =>
       allocateDnrRuleIds({
-        websiteIds: ['website-a'],
+        targetIds: ['target-a'],
         existingAssignments: null as unknown as [],
       }),
     ).toThrowError(
@@ -184,7 +184,7 @@ describe('allocateDnrRuleIds', () => {
   it('rejects null reservedRuleIds', () => {
     expect(() =>
       allocateDnrRuleIds({
-        websiteIds: ['website-a'],
+        targetIds: ['target-a'],
         reservedRuleIds: null as unknown as [],
       }),
     ).toThrowError(
@@ -194,12 +194,12 @@ describe('allocateDnrRuleIds', () => {
     )
   })
 
-  it('rejects duplicate website IDs', () => {
+  it('rejects duplicate target IDs', () => {
     expect(() =>
-      allocate(['website-a', 'website-a']),
+      allocate(['target-a', 'target-a']),
     ).toThrowError(
       expect.objectContaining({
-        code: 'duplicate-website-id',
+        code: 'duplicate-target-id',
       }),
     )
   })
@@ -207,10 +207,10 @@ describe('allocateDnrRuleIds', () => {
   it('rejects duplicate existing assignments', () => {
     expect(() =>
       allocate(
-        ['website-a'],
+        ['target-a'],
         [
-          { websiteId: 'website-a', ruleId: 150_000 },
-          { websiteId: 'website-a', ruleId: 150_001 },
+          { targetId: 'target-a', ruleId: 150_000 },
+          { targetId: 'target-a', ruleId: 150_001 },
         ],
       ),
     ).toThrowError(
@@ -220,13 +220,13 @@ describe('allocateDnrRuleIds', () => {
     )
   })
 
-  it('rejects the same rule ID assigned to different websites', () => {
+  it('rejects the same rule ID assigned to different targets', () => {
     expect(() =>
       allocate(
-        ['website-a', 'website-b'],
+        ['target-a', 'target-b'],
         [
-          { websiteId: 'website-a', ruleId: 150_000 },
-          { websiteId: 'website-b', ruleId: 150_000 },
+          { targetId: 'target-a', ruleId: 150_000 },
+          { targetId: 'target-b', ruleId: 150_000 },
         ],
       ),
     ).toThrowError(
@@ -247,8 +247,8 @@ describe('allocateDnrRuleIds', () => {
     ]) {
       expect(() =>
         allocate(
-          ['website-a'],
-          [{ websiteId: 'website-a', ruleId }],
+          ['target-a'],
+          [{ targetId: 'target-a', ruleId }],
         ),
       ).toThrowError(
         expect.objectContaining({
@@ -268,7 +268,7 @@ describe('allocateDnrRuleIds', () => {
       DNR_RULE_ID_ALLOCATION_MAX + 1,
     ]) {
       expect(() =>
-        allocate(['website-a'], undefined, [ruleId]),
+        allocate(['target-a'], undefined, [ruleId]),
       ).toThrowError(
         expect.objectContaining({
           code: 'invalid-reserved-rule-id',
@@ -280,7 +280,7 @@ describe('allocateDnrRuleIds', () => {
   it('rejects duplicate reserved IDs', () => {
     expect(() =>
       allocate(
-        ['website-a'],
+        ['target-a'],
         undefined,
         [150_000, 150_000],
       ),
@@ -298,7 +298,7 @@ describe('allocateDnrRuleIds', () => {
     )
 
     expect(() =>
-      allocate(['website-a'], undefined, reservedRuleIds),
+      allocate(['target-a'], undefined, reservedRuleIds),
     ).toThrowError(
       expect.objectContaining({
         code: 'allocation-range-exhausted',
@@ -313,7 +313,7 @@ describe('allocateDnrRuleIds', () => {
     )
 
     expect(() =>
-      allocate(['new-website'], undefined, reservedRuleIds),
+      allocate(['new-target'], undefined, reservedRuleIds),
     ).toThrowError(
       expect.objectContaining({
         code: 'allocation-range-exhausted',
@@ -329,7 +329,7 @@ describe('allocateDnrRuleIds', () => {
 
     expect(() =>
       allocate(
-        ['website-a', 'website-b', 'website-c'],
+        ['target-a', 'target-b', 'target-c'],
         undefined,
         reservedRuleIds,
       ),
@@ -344,15 +344,15 @@ describe('allocateDnrRuleIds', () => {
     expect(allocate([])).toEqual([])
   })
 
-  it('rejects existing assignments for removed websites explicitly', () => {
+  it('rejects existing assignments for removed targets explicitly', () => {
     expect(() =>
       allocate(
-        ['website-a'],
-        [{ websiteId: 'removed-website', ruleId: 150_000 }],
+        ['target-a'],
+        [{ targetId: 'removed-target', ruleId: 150_000 }],
       ),
     ).toThrowError(
       expect.objectContaining({
-        code: 'existing-assignment-for-removed-website',
+        code: 'existing-assignment-for-removed-target',
       }),
     )
   })
@@ -360,8 +360,8 @@ describe('allocateDnrRuleIds', () => {
   it('rejects null existing assignment entries', () => {
     expect(() =>
       allocate(
-        ['website-a'],
-        [null as unknown as { websiteId: string; ruleId: number }],
+        ['target-a'],
+        [null as unknown as { targetId: string; ruleId: number }],
       ),
     ).toThrowError(
       expect.objectContaining({
@@ -373,8 +373,8 @@ describe('allocateDnrRuleIds', () => {
   it('rejects non-object existing assignment entries', () => {
     expect(() =>
       allocate(
-        ['website-a'],
-        ['not-an-object' as unknown as { websiteId: string; ruleId: number }],
+        ['target-a'],
+        ['not-an-object' as unknown as { targetId: string; ruleId: number }],
       ),
     ).toThrowError(
       expect.objectContaining({
@@ -383,10 +383,10 @@ describe('allocateDnrRuleIds', () => {
     )
   })
 
-  it('rejects malformed website IDs', () => {
-    for (const websiteId of ['', '   ', ' website-a', 'website-a ']) {
+  it('rejects malformed target IDs', () => {
+    for (const targetId of ['', '   ', ' target-a', 'target-a ']) {
       expect(() =>
-        allocate([websiteId]),
+        allocate([targetId]),
       ).toThrowError(
         expect.objectContaining({
           code: 'invalid-input',
@@ -395,10 +395,10 @@ describe('allocateDnrRuleIds', () => {
     }
   })
 
-  it('rejects sparse websiteIds arrays', () => {
-    const websiteIds = new Array<string>(1)
+  it('rejects sparse targetIds arrays', () => {
+    const targetIds = new Array<string>(1)
     expect(() =>
-      allocate(websiteIds),
+      allocate(targetIds),
     ).toThrowError(
       expect.objectContaining({
         code: 'invalid-input',
@@ -409,7 +409,7 @@ describe('allocateDnrRuleIds', () => {
   it('rejects sparse reservedRuleIds arrays', () => {
     const reservedRuleIds = new Array<number>(1)
     expect(() =>
-      allocate(['website-a'], undefined, reservedRuleIds),
+      allocate(['target-a'], undefined, reservedRuleIds),
     ).toThrowError(
       expect.objectContaining({
         code: 'invalid-reserved-rule-id',
@@ -419,9 +419,9 @@ describe('allocateDnrRuleIds', () => {
 
   it('rejects sparse existingAssignments arrays', () => {
     const existingAssignments =
-      new Array<{ websiteId: string; ruleId: number }>(1)
+      new Array<{ targetId: string; ruleId: number }>(1)
     expect(() =>
-      allocate(['website-a'], existingAssignments),
+      allocate(['target-a'], existingAssignments),
     ).toThrowError(
       expect.objectContaining({
         code: 'invalid-existing-assignment',
@@ -431,11 +431,11 @@ describe('allocateDnrRuleIds', () => {
 
   it('exposes typed allocation errors', () => {
     try {
-      allocate(['website-a', 'website-a'])
+      allocate(['target-a', 'target-a'])
       throw new Error('Expected allocation to fail.')
     } catch (error) {
       expect(error).toBeInstanceOf(DnrRuleIdAllocationError)
-      expect(error).toMatchObject({ code: 'duplicate-website-id' })
+      expect(error).toMatchObject({ code: 'duplicate-target-id' })
     }
   })
 })

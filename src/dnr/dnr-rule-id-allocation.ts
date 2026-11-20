@@ -8,25 +8,25 @@ export const DNR_RULE_ID_ALLOCATION_SIZE =
   DNR_RULE_ID_ALLOCATION_MAX - DNR_RULE_ID_ALLOCATION_MIN + 1
 
 export interface DnrRuleIdAssignment {
-  readonly websiteId: string
+  readonly targetId: string
   readonly ruleId: number
 }
 
 export interface DnrRuleIdAllocationInput {
-  readonly websiteIds: readonly string[]
+  readonly targetIds: readonly string[]
   readonly existingAssignments?: readonly DnrRuleIdAssignment[]
   readonly reservedRuleIds?: readonly number[]
 }
 
 export type DnrRuleIdAllocationErrorCode =
   | 'invalid-input'
-  | 'duplicate-website-id'
+  | 'duplicate-target-id'
   | 'duplicate-existing-assignment'
   | 'rule-id-conflict'
   | 'invalid-existing-assignment'
   | 'invalid-reserved-rule-id'
   | 'duplicate-reserved-rule-id'
-  | 'existing-assignment-for-removed-website'
+  | 'existing-assignment-for-removed-target'
   | 'allocation-range-exhausted'
 
 export class DnrRuleIdAllocationError extends Error {
@@ -64,32 +64,32 @@ function isInAllocationRange(value: unknown): value is number {
   )
 }
 
-function validateWebsiteIds(websiteIds: readonly string[]): Set<string> {
-  if (!Array.isArray(websiteIds)) {
+function validateTargetIds(targetIds: readonly string[]): Set<string> {
+  if (!Array.isArray(targetIds)) {
     throw allocationError(
       'invalid-input',
-      'websiteIds must be an array.',
+      'targetIds must be an array.',
     )
   }
 
-  const websiteIdSet = new Set<string>()
-  for (const websiteId of websiteIds) {
-    if (!isNonEmptyString(websiteId)) {
+  const targetIdSet = new Set<string>()
+  for (const targetId of targetIds) {
+    if (!isNonEmptyString(targetId)) {
       throw allocationError(
         'invalid-input',
-        'Website IDs must be non-empty strings.',
+        'Target IDs must be non-empty strings.',
       )
     }
-    if (websiteIdSet.has(websiteId)) {
+    if (targetIdSet.has(targetId)) {
       throw allocationError(
-        'duplicate-website-id',
-        `Duplicate website ID: ${websiteId}.`,
+        'duplicate-target-id',
+        `Duplicate target ID: ${targetId}.`,
       )
     }
-    websiteIdSet.add(websiteId)
+    targetIdSet.add(targetId)
   }
 
-  return websiteIdSet
+  return targetIdSet
 }
 
 function validateReservedRuleIds(
@@ -124,7 +124,7 @@ function validateReservedRuleIds(
 
 function validateExistingAssignments(
   existingAssignments: readonly DnrRuleIdAssignment[],
-  websiteIds: Set<string>,
+  targetIds: Set<string>,
   reservedRuleIds: Set<number>,
 ): {
   assignments: Map<string, number>
@@ -143,25 +143,25 @@ function validateExistingAssignments(
     if (
       !assignment ||
       typeof assignment !== 'object' ||
-      !isNonEmptyString(assignment.websiteId) ||
+      !isNonEmptyString(assignment.targetId) ||
       !isInAllocationRange(assignment.ruleId)
     ) {
       throw allocationError(
         'invalid-existing-assignment',
-        'An existing assignment must contain a valid website ID and rule ID.',
+        'An existing assignment must contain a valid target ID and rule ID.',
       )
     }
 
-    if (!websiteIds.has(assignment.websiteId)) {
+    if (!targetIds.has(assignment.targetId)) {
       throw allocationError(
-        'existing-assignment-for-removed-website',
-        `Existing assignment references removed website ID ${assignment.websiteId}.`,
+        'existing-assignment-for-removed-target',
+        `Existing assignment references removed target ID ${assignment.targetId}.`,
       )
     }
-    if (assignments.has(assignment.websiteId)) {
+    if (assignments.has(assignment.targetId)) {
       throw allocationError(
         'duplicate-existing-assignment',
-        `Duplicate existing assignment: ${assignment.websiteId}.`,
+        `Duplicate existing assignment: ${assignment.targetId}.`,
       )
     }
     if (reservedRuleIds.has(assignment.ruleId)) {
@@ -173,22 +173,22 @@ function validateExistingAssignments(
     if (usedRuleIds.has(assignment.ruleId)) {
       throw allocationError(
         'rule-id-conflict',
-        `Rule ID ${assignment.ruleId} is assigned to multiple websites.`,
+        `Rule ID ${assignment.ruleId} is assigned to multiple targets.`,
       )
     }
 
-    assignments.set(assignment.websiteId, assignment.ruleId)
+    assignments.set(assignment.targetId, assignment.ruleId)
     usedRuleIds.add(assignment.ruleId)
   }
 
   return { assignments, usedRuleIds }
 }
 
-export function hashDnrRuleWebsiteId(websiteId: string): number {
-  if (!isNonEmptyString(websiteId)) {
+export function hashDnrRuleTargetId(targetId: string): number {
+  if (!isNonEmptyString(targetId)) {
     throw allocationError(
       'invalid-input',
-      'Website IDs must be non-empty strings.',
+      'Target IDs must be non-empty strings.',
     )
   }
 
@@ -197,8 +197,8 @@ export function hashDnrRuleWebsiteId(websiteId: string): number {
   // hash algorithm or encoding can change first-candidate IDs. Persisted
   // assignments are authoritative and are therefore never recalculated.
   let hash = 0x811c9dc5
-  for (let index = 0; index < websiteId.length; index += 1) {
-    hash ^= websiteId.charCodeAt(index)
+  for (let index = 0; index < targetId.length; index += 1) {
+    hash ^= targetId.charCodeAt(index)
     hash = Math.imul(hash, 0x01000193) >>> 0
   }
 
@@ -208,14 +208,14 @@ export function hashDnrRuleWebsiteId(websiteId: string): number {
 export function allocateDnrRuleIds(
   input: DnrRuleIdAllocationInput,
 ): readonly DnrRuleIdAssignment[] {
-  if (!input || typeof input !== 'object' || !Array.isArray(input.websiteIds)) {
+  if (!input || typeof input !== 'object' || !Array.isArray(input.targetIds)) {
     throw allocationError(
       'invalid-input',
-      'The allocation input must contain a websiteIds array.',
+      'The allocation input must contain a targetIds array.',
     )
   }
 
-  const websiteIds = validateWebsiteIds(input.websiteIds)
+  const targetIds = validateTargetIds(input.targetIds)
   const reservedInput =
     input.reservedRuleIds === undefined
       ? []
@@ -229,7 +229,7 @@ export function allocateDnrRuleIds(
       : input.existingAssignments
   const existing = validateExistingAssignments(
     existingInput,
-    websiteIds,
+    targetIds,
     reservedRuleIds,
   )
 
@@ -239,21 +239,21 @@ export function allocateDnrRuleIds(
   }
 
   const assignments = new Map(existing.assignments)
-  const sortedNewWebsiteIds = [...websiteIds]
-    .filter((websiteId) => !assignments.has(websiteId))
+  const sortedNewTargetIds = [...targetIds]
+    .filter((targetId) => !assignments.has(targetId))
     .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
 
   const availableRuleIdCount =
     DNR_RULE_ID_ALLOCATION_SIZE - usedRuleIds.size
-  if (availableRuleIdCount < sortedNewWebsiteIds.length) {
+  if (availableRuleIdCount < sortedNewTargetIds.length) {
     throw allocationError(
       'allocation-range-exhausted',
       'Insufficient available DNR rule IDs remain in the allocation range.',
     )
   }
 
-  for (const websiteId of sortedNewWebsiteIds) {
-    const hash = hashDnrRuleWebsiteId(websiteId)
+  for (const targetId of sortedNewTargetIds) {
+    const hash = hashDnrRuleTargetId(targetId)
     const firstOffset =
       hash % DNR_RULE_ID_ALLOCATION_SIZE
     let allocated = false
@@ -263,7 +263,7 @@ export function allocateDnrRuleIds(
         DNR_RULE_ID_ALLOCATION_MIN +
         ((firstOffset + offset) % DNR_RULE_ID_ALLOCATION_SIZE)
       if (!usedRuleIds.has(candidate)) {
-        assignments.set(websiteId, candidate)
+        assignments.set(targetId, candidate)
         usedRuleIds.add(candidate)
         allocated = true
         break
@@ -279,11 +279,11 @@ export function allocateDnrRuleIds(
   }
 
   return [...assignments.entries()]
-    .map(([websiteId, ruleId]) => ({ websiteId, ruleId }))
+    .map(([targetId, ruleId]) => ({ targetId, ruleId }))
     .sort((left, right) =>
-      left.websiteId < right.websiteId
+      left.targetId < right.targetId
         ? -1
-        : left.websiteId > right.websiteId
+        : left.targetId > right.targetId
           ? 1
           : 0
     )
